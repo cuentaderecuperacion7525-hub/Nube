@@ -127,6 +127,9 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
     private val _viewerAssetState = MutableStateFlow<UiState<AssetDto>>(UiState.Loading)
     val viewerAssetState: StateFlow<UiState<AssetDto>> = _viewerAssetState.asStateFlow()
 
+    private val _isDownloadingOriginal = MutableStateFlow(false)
+    val isDownloadingOriginal: StateFlow<Boolean> = _isDownloadingOriginal.asStateFlow()
+
     private val _serverHubState = MutableStateFlow<UiState<ServerHubData>>(UiState.Loading)
     val serverHubState: StateFlow<UiState<ServerHubData>> = _serverHubState.asStateFlow()
 
@@ -349,7 +352,8 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
                 }
                 immichRepository.uploadPhotoFromUri(serverUrl, resolver, uri)
                     .onSuccess { res ->
-                        if (res.duplicate) duplicateCount++ else uploadedCount++
+                        val isDup = res.duplicate || res.status.equals("duplicate", ignoreCase = true)
+                        if (isDup) duplicateCount++ else uploadedCount++
                     }
                     .onFailure {
                         failedCount++
@@ -507,6 +511,24 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
                 .onFailure { err ->
                     _snackbarEvents.emit(err.message ?: "No se pudo actualizar favorito.")
                 }
+        }
+    }
+
+    fun downloadOriginalAsset(asset: AssetDto) {
+        val serverUrl = _session.value.serverUrl
+        if (serverUrl.isBlank() || _isDownloadingOriginal.value) return
+        viewModelScope.launch {
+            _isDownloadingOriginal.value = true
+            immichRepository.downloadOriginalToDevice(
+                serverUrl = serverUrl,
+                context = getApplication(),
+                asset = asset,
+            ).onSuccess { msg ->
+                _snackbarEvents.emit(msg)
+            }.onFailure { err ->
+                _snackbarEvents.emit(err.message ?: "No se pudo descargar el archivo.")
+            }
+            _isDownloadingOriginal.value = false
         }
     }
 

@@ -38,6 +38,7 @@
     <string name="create_button">Crear</string>
     <string name="exif_details_title">Detalles y EXIF</string>
     <string name="cd_back">Volver</string>
+    <string name="cd_download">Descargar archivo original</string>
     <string name="cd_favorite">Alternar favorito</string>
     <string name="cd_info">Información del archivo</string>
     <string name="cd_upload">Subir fotos desde el dispositivo</string>

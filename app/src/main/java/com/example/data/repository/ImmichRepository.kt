@@ -244,18 +244,35 @@ class ImmichRepository(
     ): Result<UploadAssetResponse> = withContext(Dispatchers.IO) {
         runCatching {
             val mimeType = contentResolver.getType(uri) ?: "image/jpeg"
-            val fileName = queryFileName(contentResolver, uri) ?: "upload_${System.currentTimeMillis()}.jpg"
-            val bytes = contentResolver.openInputStream(uri)?.use { it.readBytes() }
-                ?: error("No se pudo leer el archivo seleccionado.")
+            val (fileName, fileSize) = queryFileMeta(contentResolver, uri)
+            val resolvedName = fileName ?: "upload_${System.currentTimeMillis()}.jpg"
+
+            val streamingBody = object : okhttp3.RequestBody() {
+                override fun contentType() = mimeType.toMediaTypeOrNull()
+
+                override fun contentLength(): Long = fileSize ?: -1L
+
+                override fun writeTo(sink: okio.BufferedSink) {
+                    val input = contentResolver.openInputStream(uri)
+                        ?: error("No se pudo abrir el archivo seleccionado.")
+                    input.use { stream ->
+                        val buffer = ByteArray(16 * 1024)
+                        var read: Int
+                        while (stream.read(buffer).also { read = it } != -1) {
+                            sink.write(buffer, 0, read)
+                        }
+                    }
+                }
+            }
 
             val filePart = MultipartBody.Part.createFormData(
                 name = "assetData",
-                filename = fileName,
-                body = bytes.toRequestBody(mimeType.toMediaTypeOrNull()),
+                filename = resolvedName,
+                body = streamingBody,
             )
             val nowIso = isoUtcNow()
             val textPlain = "text/plain".toMediaTypeOrNull()
-            val deviceAssetId = "${fileName}-${bytes.size}-${UUID.randomUUID().toString().take(8)}"
+            val deviceAssetId = "${resolvedName}-${fileSize ?: 0L}-${UUID.randomUUID().toString().take(8)}"
 
             clientFactory.getService(serverUrl).uploadAsset(
                 assetData = filePart,
@@ -267,14 +284,89 @@ class ImmichRepository(
         }.mapFailure()
     }
 
-    private fun queryFileName(contentResolver: ContentResolver, uri: Uri): String? {
-        return contentResolver.query(uri, arrayOf(OpenableColumns.DISPLAY_NAME), null, null, null)
-            ?.use { cursor ->
-                if (cursor.moveToFirst()) {
-                    val idx = cursor.getColumnIndex(OpenableColumns.DISPLAY_NAME)
-                    if (idx >= 0) cursor.getString(idx) else null
-                } else null
+    suspend fun downloadOriginalToDevice(
+        serverUrl: String,
+        context: android.content.Context,
+        asset: AssetDto,
+    ): Result<String> = withContext(Dispatchers.IO) {
+        runCatching {
+            val url = ImmichClientFactory.originalUrl(serverUrl, asset.id)
+            val request = okhttp3.Request.Builder().url(url).get().build()
+            clientFactory.okHttpClient.newCall(request).execute().use { response ->
+                if (!response.isSuccessful) {
+                    error("Error al descargar original (${response.code}).")
+                }
+                val body = response.body ?: error("El servidor devolvió un archivo vacío.")
+                val fileName = asset.originalFileName.ifBlank { "${asset.id}.jpg" }
+                val mimeType = asset.originalMimeType
+                    ?: if (asset.type.equals("VIDEO", ignoreCase = true)) "video/mp4" else "image/jpeg"
+
+                if (android.os.Build.VERSION.SDK_INT >= android.os.Build.VERSION_CODES.Q) {
+                    val isVideo = asset.type.equals("VIDEO", ignoreCase = true)
+                    val collection = if (isVideo) {
+                        android.provider.MediaStore.Video.Media.EXTERNAL_CONTENT_URI
+                    } else {
+                        android.provider.MediaStore.Images.Media.EXTERNAL_CONTENT_URI
+                    }
+                    val relativeDir = if (isVideo) {
+                        "${android.os.Environment.DIRECTORY_MOVIES}/ImmichVault"
+                    } else {
+                        "${android.os.Environment.DIRECTORY_PICTURES}/ImmichVault"
+                    }
+                    val values = android.content.ContentValues().apply {
+                        put(android.provider.MediaStore.MediaColumns.DISPLAY_NAME, fileName)
+                        put(android.provider.MediaStore.MediaColumns.MIME_TYPE, mimeType)
+                        put(android.provider.MediaStore.MediaColumns.RELATIVE_PATH, relativeDir)
+                        put(android.provider.MediaStore.MediaColumns.IS_PENDING, 1)
+                    }
+                    val resolver = context.contentResolver
+                    val uri = resolver.insert(collection, values)
+                        ?: error("No se pudo crear el archivo en la galería.")
+                    try {
+                        resolver.openOutputStream(uri)?.use { out ->
+                            body.byteStream().use { input ->
+                                input.copyTo(out, bufferSize = 16 * 1024)
+                            }
+                        } ?: error("No se pudo escribir en la galería.")
+                        values.clear()
+                        values.put(android.provider.MediaStore.MediaColumns.IS_PENDING, 0)
+                        resolver.update(uri, values, null, null)
+                    } catch (t: Throwable) {
+                        resolver.delete(uri, null, null)
+                        throw t
+                    }
+                    "Guardado en $relativeDir/$fileName"
+                } else {
+                    val dir = context.getExternalFilesDir(android.os.Environment.DIRECTORY_DOWNLOADS)
+                        ?: context.filesDir
+                    val outFile = java.io.File(dir, fileName)
+                    outFile.outputStream().use { out ->
+                        body.byteStream().use { input ->
+                            input.copyTo(out, bufferSize = 16 * 1024)
+                        }
+                    }
+                    "Guardado en ${outFile.absolutePath}"
+                }
             }
+        }.mapFailure()
+    }
+
+    private fun queryFileMeta(contentResolver: ContentResolver, uri: Uri): Pair<String?, Long?> {
+        return contentResolver.query(
+            uri,
+            arrayOf(OpenableColumns.DISPLAY_NAME, OpenableColumns.SIZE),
+            null,
+            null,
+            null,
+        )?.use { cursor ->
+            if (cursor.moveToFirst()) {
+                val nameIdx = cursor.getColumnIndex(OpenableColumns.DISPLAY_NAME)
+                val sizeIdx = cursor.getColumnIndex(OpenableColumns.SIZE)
+                val name = if (nameIdx >= 0) cursor.getString(nameIdx) else null
+                val size = if (sizeIdx >= 0 && !cursor.isNull(sizeIdx)) cursor.getLong(sizeIdx) else null
+                name to size
+            } else null to null
+        } ?: (null to null)
     }
 
     private fun isoUtcNow(): String {

@@ -21,6 +21,7 @@ import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material.icons.filled.CameraAlt
+import androidx.compose.material.icons.filled.Download
 import androidx.compose.material.icons.filled.Favorite
 import androidx.compose.material.icons.filled.FavoriteBorder
 import androidx.compose.material.icons.filled.Info
@@ -34,9 +35,12 @@ import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.ModalBottomSheet
+import androidx.compose.material3.SnackbarHost
+import androidx.compose.material3.SnackbarHostState
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableFloatStateOf
 import androidx.compose.runtime.mutableStateOf
@@ -66,6 +70,7 @@ import com.example.ui.components.ErrorStateCard
 import com.example.ui.components.formatBytes
 import com.example.ui.components.formatIsoDateLabel
 import com.example.ui.viewmodel.UiState
+import kotlinx.coroutines.flow.SharedFlow
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
@@ -73,12 +78,22 @@ fun AssetViewerScreen(
     assetState: UiState<AssetDto>,
     serverUrl: String,
     imageLoader: ImageLoader,
+    isDownloading: Boolean,
+    snackbarEvents: SharedFlow<String>,
     onBack: () -> Unit,
     onRetry: () -> Unit,
     onToggleFavorite: (AssetDto) -> Unit,
+    onDownloadOriginal: (AssetDto) -> Unit,
 ) {
     val context = LocalContext.current
     var showExifSheet by remember { mutableStateOf(false) }
+    val snackbarHostState = remember { SnackbarHostState() }
+
+    LaunchedEffect(snackbarEvents) {
+        snackbarEvents.collect { msg ->
+            snackbarHostState.showSnackbar(msg)
+        }
+    }
 
     var scale by remember { mutableFloatStateOf(1f) }
     var offset by remember { mutableStateOf(Offset.Zero) }
@@ -226,7 +241,26 @@ fun AssetViewerScreen(
 
             if (assetState is UiState.Success) {
                 val asset = assetState.data
-                Row {
+                Row(verticalAlignment = Alignment.CenterVertically) {
+                    IconButton(
+                        onClick = { onDownloadOriginal(asset) },
+                        enabled = !isDownloading,
+                        modifier = Modifier.testTag("viewer_download_button"),
+                    ) {
+                        if (isDownloading) {
+                            CircularProgressIndicator(
+                                modifier = Modifier.size(18.dp),
+                                color = Color.White,
+                                strokeWidth = 2.dp,
+                            )
+                        } else {
+                            Icon(
+                                imageVector = Icons.Default.Download,
+                                contentDescription = stringResource(R.string.cd_download),
+                                tint = Color.White,
+                            )
+                        }
+                    }
                     IconButton(
                         onClick = { onToggleFavorite(asset) },
                         modifier = Modifier.testTag("viewer_favorite_button"),
@@ -251,6 +285,14 @@ fun AssetViewerScreen(
                 }
             }
         }
+
+        SnackbarHost(
+            hostState = snackbarHostState,
+            modifier = Modifier
+                .align(Alignment.BottomCenter)
+                .navigationBarsPadding()
+                .padding(bottom = 68.dp),
+        )
     }
 }
 

@@ -62,6 +62,7 @@ fun ImmichVaultApp(
     val albumDetailState by viewModel.albumDetailState.collectAsStateWithLifecycle()
     val searchState by viewModel.searchState.collectAsStateWithLifecycle()
     val viewerAssetState by viewModel.viewerAssetState.collectAsStateWithLifecycle()
+    val isDownloadingOriginal by viewModel.isDownloadingOriginal.collectAsStateWithLifecycle()
     val serverHubState by viewModel.serverHubState.collectAsStateWithLifecycle()
     val gitHubState by viewModel.gitHubState.collectAsStateWithLifecycle()
 
@@ -173,9 +174,12 @@ fun ImmichVaultApp(
                 assetState = viewerAssetState,
                 serverUrl = session.serverUrl,
                 imageLoader = viewModel.imageLoader,
+                isDownloading = isDownloadingOriginal,
+                snackbarEvents = viewModel.snackbarEvents,
                 onBack = { navController.popBackStack() },
                 onRetry = { viewModel.loadAssetDetail(route.assetId) },
                 onToggleFavorite = viewModel::toggleFavorite,
+                onDownloadOriginal = viewModel::downloadOriginalAsset,
             )
         }
     }
