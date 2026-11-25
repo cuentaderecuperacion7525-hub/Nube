@@ -1,0 +1,6 @@
+{
+  "name": "ImmichVault",
+  "description": "Cliente Android nativo para servidores autohospedados de Immich con visor de línea de tiempo, álbumes, búsqueda inteligente, carga desde Photo Picker y explorador de repositorios oficiales de GitHub.",
+  "requestFramePermissions": [],
+  "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
+}
