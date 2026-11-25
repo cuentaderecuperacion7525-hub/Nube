@@ -15,11 +15,11 @@ jobs:
       - name: Descargar repositorio
         uses: actions/checkout@v4
 
-      - name: Configurar JDK 17
+      - name: Configurar JDK 21
         uses: actions/setup-java@v4
         with:
           distribution: temurin
-          java-version: '17'
+          java-version: '21'
 
       - name: Configurar Android SDK (API 36.1)
         run: |
@@ -44,11 +44,11 @@ jobs:
         with:
           gradle-version: '9.3.1'
 
-      - name: Ejecutar pruebas unitarias
-        run: gradle :app:testDebugUnitTest --no-daemon
-
       - name: Compilar APK real (Debug)
-        run: gradle :app:assembleDebug --no-daemon
+        run: gradle :app:assembleDebug --no-daemon --stacktrace
+
+      - name: Ejecutar pruebas unitarias
+        run: gradle :app:testDebugUnitTest --no-daemon --stacktrace
 
       - name: Subir APK instalable
         uses: actions/upload-artifact@v4
